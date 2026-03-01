@@ -497,6 +497,40 @@ function addon:OnProfessionsFrameShow()
   end)
 end
 
+function addon:ApplyOrdersButtonStyle(btn)
+  if not btn then
+    return
+  end
+
+  btn:SetSize(100, 22)
+  btn:SetNormalFontObject(GameFontHighlightSmall)
+  btn:SetHighlightFontObject(GameFontHighlightSmall)
+  btn:SetPushedTextOffset(1, -1)
+  local fs = btn:GetFontString()
+  if fs then
+    fs:SetTextColor(1.0, 0.82, 0.25)
+    fs:SetShadowColor(0, 0, 0, 1)
+    fs:SetShadowOffset(1, -1)
+  end
+
+  btn:SetText(L["BTN_PLACE_ORDER"])
+end
+
+function addon:RepositionOrdersButton(target, btn)
+  if not target or not btn then
+    return
+  end
+
+  btn:SetFrameStrata("HIGH")
+  btn:SetFrameLevel((target:GetFrameLevel() or 1) + 20)
+  btn:ClearAllPoints()
+  if AuctionHouseFrame and target == AuctionHouseFrame.TitleContainer then
+    btn:SetPoint("TOPRIGHT", target, "TOPRIGHT", -13, 0)
+  else
+    btn:SetPoint("TOPRIGHT", target, "TOPRIGHT", -49, 0)
+  end
+end
+
 function addon:OpenOrdersButton(target)
   if not target then
     return
@@ -510,19 +544,14 @@ function addon:OpenOrdersButton(target)
   local name = "ECUIOrders" .. targetName
   local btn = _G[name] or CreateFrame("Button", name, target, "UIPanelButtonTemplate")
   btn:SetFrameLevel(600)
-  btn:ClearAllPoints()
-  btn:SetSize(100, 24)
-  if btn.SetTextToFit then
-    btn:SetTextToFit(L["BTN_PLACE_ORDER"])
-  else
-    btn:SetText(L["BTN_PLACE_ORDER"])
-  end
-
-  if AuctionHouseFrame and target == AuctionHouseFrame.TitleContainer then
-    btn:SetPoint("TOPLEFT", 10, 1)
-  else
-    btn:SetPoint("TOPLEFT", 90, 1)
-  end
+  self:ApplyOrdersButtonStyle(btn)
+  self:RepositionOrdersButton(target, btn)
+  C_Timer.After(0, function()
+    addon:RepositionOrdersButton(target, btn)
+  end)
+  C_Timer.After(0.12, function()
+    addon:RepositionOrdersButton(target, btn)
+  end)
 
   btn:SetScript("OnClick", function(b)
     addon:CaptureUIState("O:BeforeClick")
@@ -556,6 +585,16 @@ function addon:OpenOrdersButton(target)
     end
     addon:CaptureUIState("O:AfterClick")
   end)
+
+  if not target.ecuiOrdersLayoutHooked then
+    target.ecuiOrdersLayoutHooked = true
+    target:HookScript("OnShow", function()
+      addon:RepositionOrdersButton(target, btn)
+      C_Timer.After(0.08, function()
+        addon:RepositionOrdersButton(target, btn)
+      end)
+    end)
+  end
 end
 
 function addon:PrepareOrdersFrame(frame)

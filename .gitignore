@@ -1,0 +1,36 @@
+# WoW runtime data
+WTF/
+SavedVariables/
+*.bak
+*.tmp
+
+# Packaged/release artifacts
+*.zip
+*.7z
+*.rar
+dist/
+release/
+build/
+
+# Logs and crash dumps
+*.log
+*.dmp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/editor files
+.vscode/
+.idea/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Lua tooling caches
+.luacache/
+.sumneko/
