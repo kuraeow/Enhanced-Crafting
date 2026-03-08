@@ -2,8 +2,6 @@ local AddonName, ns = ...
 ns = ns or {}
 
 local APP_NAME = "EnhancedCrafting"
-local COMM_PREFIX = "ECUI_FindCrafter"
-local CHANNEL_NAME = "FindCrafter"
 local ORDERS_ICON_PATH = "Interface\\AddOns\\" .. tostring(AddonName or "Enhanced Crafting") .. "\\Media\\ecraftIcon.tga"
 local format = string.format
 local min = math.min
@@ -20,11 +18,9 @@ local REMINDER_ANCHORS = {
   BOTTOMRIGHT = true
 }
 
-local addon = LibStub("AceAddon-3.0"):NewAddon(APP_NAME, "AceComm-3.0", "AceHook-3.0", "AceEvent-3.0", "AceConsole-3.0")
+local addon = LibStub("AceAddon-3.0"):NewAddon(APP_NAME, "AceHook-3.0", "AceEvent-3.0", "AceConsole-3.0")
 ns.Addon = addon
 _G.ECUI = addon
-
-local AceSerializer = LibStub("AceSerializer-3.0")
 
 local defaults = {
   global = {
@@ -33,8 +29,6 @@ local defaults = {
   },
   profile = {
     enabled = true,
-    delay = 30,
-    autoJoinChannel = true,
     trace = false,
     reminderEnabled = true,
     reminderDuration = 6,
@@ -51,6 +45,19 @@ local defaults = {
     debug = false
   }
 }
+
+local function getAddonVersion()
+  local version
+  if AddonName and C_AddOns and C_AddOns.GetAddOnMetadata then
+    version = C_AddOns.GetAddOnMetadata(AddonName, "Version")
+  elseif AddonName and GetAddOnMetadata then
+    version = GetAddOnMetadata(AddonName, "Version")
+  end
+  if not version or version == "" then
+    version = "unknown"
+  end
+  return tostring(version)
+end
 
 local function safeLoadAddOn(name)
   if C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded(name) then
@@ -204,68 +211,15 @@ function addon:DebugPrint(...)
   end
 end
 
-function addon:EnsureResults()
-  self.resultsBySender = self.resultsBySender or {}
-end
-
-function addon:InsertData(data)
-  if not data or not data.sender then
-    return
-  end
-  self:EnsureResults()
-  self.resultsBySender[data.sender] = data
-end
-
-function addon:FlushResults()
-  self.resultsBySender = {}
-end
-
-function addon:GetResult(sender, recipeID)
-  self:EnsureResults()
-  local data = self.resultsBySender[sender]
-  if not data or not data.details then
-    return nil
-  end
-  if not recipeID then
-    return data
-  end
-  if data.details.recipeID == recipeID then
-    return data
-  end
-  return nil
-end
-
-function addon:GetSortedResults()
-  self:EnsureResults()
-  local list = {}
-  for _, v in pairs(self.resultsBySender) do
-    list[#list + 1] = v
-  end
-  table.sort(list, function(a, b)
-    return (a.sender or "") < (b.sender or "")
-  end)
-  return list
-end
-
-function addon:InitChatChannel()
-  self.channelId = GetChannelName(CHANNEL_NAME)
-  if self.channelId == 0 and self.db.profile.autoJoinChannel then
-    JoinPermanentChannel(CHANNEL_NAME, nil, nil, false)
-    self.channelId = GetChannelName(CHANNEL_NAME)
-  end
-end
-
 function addon:OnInitialize()
   self.db = LibStub("AceDB-3.0"):New("EnhancedCraftingDB", defaults, true)
   self:SetupOptions()
   self:RegisterChatCommand("ecraft", "HandleSlash")
-  self:RegisterComm(COMM_PREFIX)
   self:RegisterEvent("CHAT_MSG_SYSTEM")
   self:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_SHOW")
   self:RegisterEvent("PLAYER_INTERACTION_MANAGER_FRAME_HIDE")
   self:RegisterEvent("TRADE_SKILL_SHOW")
   self:RegisterEvent("TRADE_SKILL_CLOSE")
-  self:FlushResults()
 end
 
 function addon:OnEnable()
@@ -276,11 +230,6 @@ function addon:OnEnable()
   safeLoadAddOn("Blizzard_ProfessionsCustomerOrders")
   safeLoadAddOn("Blizzard_Professions")
   safeLoadAddOn("Blizzard_AuctionHouseUI")
-
-  local delay = tonumber(self.db.profile.delay) or 30
-  C_Timer.After(delay, function()
-    self:InitChatChannel()
-  end)
 
   self.form = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
   if not self.form then
@@ -304,9 +253,6 @@ function addon:OnEnable()
     if ProfessionsCustomerOrdersFrame then
       self:SecureHookScript(ProfessionsCustomerOrdersFrame, "OnHide", "OnCustomerOrdersFrameHide")
     end
-    self:SecureHookScript(self.form.OrderRecipientTarget, "OnEditFocusLost", "InitTarget")
-    self:SecureHookScript(self.form.OrderRecipientTarget, "OnShow", "InitTarget")
-    self:SecureHookScript(self.form.OrderRecipientTarget, "OnHide", "UpdateQuality")
     self:SecureHookScript(self.form.ReagentContainer.Reagents, "OnShow", "AddCheckBox")
     self:SecureHookScript(self.form.ReagentContainer.Reagents, "OnHide", "AddCheckBox")
 
@@ -344,6 +290,7 @@ function addon:OnEnable()
 
   self:CaptureUIState("OnEnable")
   self:Print(L["ADDON_LOADED"])
+  self:Print("Версия: " .. getAddonVersion())
 end
 
 function addon:OnDisable()
@@ -360,23 +307,14 @@ function addon:OnShow()
   if not self.form or not self.form.ReagentContainer then
     return
   end
-  self:FlushResults()
-  self.selectedData = nil
   self.allocationCache = nil
   self.allockCheck = nil
 
-  self:CreateFindButton()
   self:AddCheckBox(self.form.ReagentContainer)
-  self:UpdateQuality()
-
-  EventRegistry:RegisterCallback("Professions.AllocationUpdated", function(...)
-    self:AllocationUpdated(...)
-  end, self)
   self:CaptureUIState("CustomerOrdersForm:OnShow")
 end
 
 function addon:OnHide()
-  EventRegistry:UnregisterCallback("Professions.AllocationUpdated", self)
   self:CaptureUIState("CustomerOrdersForm:OnHide")
 end
 
@@ -722,342 +660,6 @@ function addon:AddCheckBox(target)
   end
 end
 
-function addon:AllocationUpdated()
-  if not self.form or not self.form.transaction then
-    return
-  end
-
-  local allocation = self.form.transaction:CreateCraftingReagentInfoTbl()
-  if not self.allocationCache then
-    self.allocationCache = allocation
-  end
-
-  if not self.compare(allocation, self.allocationCache) then
-    self.allocationCache = allocation
-    if self.allockCheck then
-      self.allockCheck:Cancel()
-    end
-    self.allockCheck = C_Timer.NewTimer(0.1, function()
-      self:InitTarget()
-    end)
-  end
-end
-
-function addon:Transmit(data, target)
-  local encoded = AceSerializer:Serialize(data)
-
-  if IsInInstance and IsInInstance() then
-    self:DebugPrint(L["DEBUG_SKIP_SEND_IN_INSTANCE"])
-    return
-  end
-
-  local ok
-  if target and string.len(target) > 2 then
-    ok = pcall(self.SendCommMessage, self, COMM_PREFIX, encoded, "WHISPER", target)
-  elseif self.channelId and data.request and data.request.recipeID then
-    ok = pcall(self.SendCommMessage, self, COMM_PREFIX, encoded, "CHANNEL", self.channelId)
-  end
-
-  if ok == false then
-    self:DebugPrint(L["DEBUG_SEND_FAILED"])
-  end
-end
-
-function addon:OnCommReceived(prefix, payload, distribution, sender)
-  if prefix ~= COMM_PREFIX then
-    return
-  end
-
-  local success, data = AceSerializer:Deserialize(payload)
-  if not success then
-    return
-  end
-
-  if data.response and sender and string.len(sender) > 2 then
-    self:InsertData({ sender = sender, details = data.response })
-    self:UpdateQuality()
-    self:UpdatePopupList()
-  end
-
-  if data.request and data.request.recipeID then
-    if ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.OnLoad then
-      ProfessionsFrame.CraftingPage:OnLoad()
-    end
-
-    local recipeID = data.request.recipeID
-    local isLearned = C_TradeSkillUI.IsRecipeProfessionLearned(recipeID)
-    local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
-
-    if isLearned then
-      local reagents = data.request.reagents or {}
-      local response
-      do
-        local ok, result = pcall(C_TradeSkillUI.GetCraftingOperationInfo, recipeID, reagents, nil, false)
-        if ok then
-          response = result
-        else
-          local okLegacy, legacyResult = pcall(C_TradeSkillUI.GetCraftingOperationInfo, recipeID, reagents)
-          if okLegacy then
-            response = legacyResult
-          else
-            self:DebugPrint(L["DEBUG_GET_CRAFTING_OPERATION_FAILED"], recipeID)
-            return
-          end
-        end
-      end
-      if not response or response.baseSkill == 0 then
-        return
-      end
-
-      response.learned = (not recipeInfo and "notloaded") or (not recipeInfo.learned and "notlearned")
-      response.recipeID = recipeID
-      self:Transmit({ response = response }, sender)
-    end
-  end
-end
-
-function addon:InitTarget()
-  if not self.form or not self.form.OrderRecipientTarget then
-    return
-  end
-  local target = self.form.OrderRecipientTarget:GetText()
-  if target and string.len(target) > 3 then
-    self:QueryRecipe(target)
-  end
-end
-
-function addon:QueryRecipe(target)
-  local trans = self.form and self.form.transaction
-  if not trans or not trans.recipeID then
-    return
-  end
-
-  self:Transmit({
-    request = {
-      recipeID = trans.recipeID,
-      reagents = trans:CreateCraftingReagentInfoTbl() or {}
-    }
-  }, target)
-end
-
-function addon:FindCrafter_OnClick(btn)
-  addon.channelId = GetChannelName(CHANNEL_NAME)
-  if self.channelId == 0 then
-    self:InitChatChannel()
-    self.channelId = GetChannelName(CHANNEL_NAME)
-    if self.channelId == 0 then
-      return
-    end
-  end
-
-  self:FlushResults()
-  self:QueryRecipe()
-  self:PopupList(btn)
-end
-
-function addon:SelectCrafter(data)
-  self.selectedData = data
-  if self.form and self.form.OrderRecipientTarget then
-    self.form.OrderRecipientTarget:SetText(data.sender)
-    self:UpdateQuality()
-  end
-end
-
-function addon:CreateFindButton()
-  if not self.form or not self.form.OrderRecipientTarget then
-    return
-  end
-
-  local btn = _G.ECUIFindCrafterBtn or CreateFrame("Button", "ECUIFindCrafterBtn", self.form.OrderRecipientTarget, "UIPanelButtonTemplate")
-  btn:SetSize(80, 22)
-  if btn.SetTextToFit then
-    btn:SetTextToFit(L["BTN_FIND"])
-  else
-    btn:SetText(L["BTN_FIND"])
-  end
-  btn:SetPoint("TOPRIGHT", self.form.OrderRecipientTarget, "TOPLEFT", -31, 0)
-  btn:SetScript("OnClick", function(button)
-    addon:FindCrafter_OnClick(button)
-  end)
-  btn:SetScript("OnUpdate", function(button)
-    addon.channelId = GetChannelName(CHANNEL_NAME)
-    local text = L["BTN_FIND"]
-    if button.SetTextToFit then
-      button:SetTextToFit(text)
-    else
-      button:SetText(text)
-    end
-  end)
-  self.FindButton = btn
-end
-
-function addon:UpdateQuality()
-  local form = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
-  if not form or not form:IsVisible() or not form.transaction then
-    return
-  end
-
-  local recipeID = form.transaction.recipeID
-  local target = form.OrderRecipientTarget
-  local value = target and target:GetText()
-
-  if target and target:IsVisible() and value and recipeID and string.len(value) > 2 then
-    local data = self:GetResult(value, recipeID)
-    if data and data.details then
-      form:SetMinimumQualityIndex(data.details.craftingQuality)
-      form:UpdateMinimumQuality()
-      local qualityDropdown = form.MinimumQuality.Dropdown or form.MinimumQuality.DropDown
-      if qualityDropdown then
-        qualityDropdown:Hide()
-      end
-
-      local label = form.MinimumQuality
-      label.Text:ClearAllPoints()
-      if qualityDropdown then
-        label.Text:SetPoint("RIGHT", qualityDropdown, "LEFT", -25, 0)
-      end
-
-      local result = _G.MinQualityResult or CreateFrame("Frame", "MinQualityResult", label)
-      result:ClearAllPoints()
-      result:SetPoint("LEFT", label.Text, "RIGHT", 0, 0)
-      result:SetSize(100, 40)
-      result:Show()
-
-      local quality = _G.MinQualityQuality or result:CreateFontString("MinQualityQuality", "ARTWORK", "GameFontNormal")
-      quality:ClearAllPoints()
-      quality:SetPoint("TOPLEFT", result, "TOPLEFT", 0, -8)
-      quality:SetText(self.FormatResponse(data, true))
-      quality:Show()
-
-      local skill = _G.MinQualitySkill or result:CreateFontString("MinQualitySkill", "ARTWORK", "GameFontNormal")
-      skill:SetText(format(L["FORMAT_SKILL"],
-        data.details.baseSkill + data.details.bonusSkill,
-        data.details.baseDifficulty + data.details.bonusDifficulty
-      ))
-      skill:SetTextColor(GRAY_FONT_COLOR.r, GRAY_FONT_COLOR.g, GRAY_FONT_COLOR.b)
-      skill:ClearAllPoints()
-      skill:SetPoint("TOPLEFT", result, "TOPLEFT", 2, -32)
-      skill:SetScale(0.7)
-      skill:Show()
-      return
-    end
-  end
-
-  form:UpdateMinimumQualityAnchor()
-  form:UpdateMinimumQuality()
-  local qualityDropdown = form.MinimumQuality.Dropdown or form.MinimumQuality.DropDown
-  if qualityDropdown then
-    qualityDropdown:Show()
-  end
-  if _G.MinQualityResult then
-    _G.MinQualityResult:Hide()
-  end
-end
-
-function addon:CreatePopup()
-  if self.popup then
-    return self.popup
-  end
-
-  local parent = (self.FindButton and self.FindButton:GetParent()) or UIParent
-  local popup = CreateFrame("Frame", "ECUIPopupList", parent, "TooltipBackdropTemplate")
-  popup:SetFrameStrata("TOOLTIP")
-  popup:SetSize(260, 180)
-  popup:Hide()
-  popup:SetScript("OnHide", function(f)
-    f:UnregisterEvent("GLOBAL_MOUSE_DOWN")
-  end)
-  popup:SetScript("OnShow", function(f)
-    f:RegisterEvent("GLOBAL_MOUSE_DOWN")
-  end)
-  local function ancestryIncludes(parent, child)
-    if DoesAncestryInclude then
-      return DoesAncestryInclude(parent, child)
-    end
-    local cursor = child
-    while cursor do
-      if cursor == parent then
-        return true
-      end
-      cursor = cursor.GetParent and cursor:GetParent() or nil
-    end
-    return false
-  end
-
-  popup:SetScript("OnEvent", function(selfFrame, event, ...)
-    if event ~= "GLOBAL_MOUSE_DOWN" then
-      return
-    end
-    local buttonName = ...
-    local isRightButton = buttonName == "RightButton"
-    local mouseFocus
-    if GetMouseFoci then
-      local foci = GetMouseFoci()
-      mouseFocus = foci and foci[1]
-    else
-      mouseFocus = GetMouseFocus and GetMouseFocus()
-    end
-    if not isRightButton and ancestryIncludes(selfFrame.owner, mouseFocus) then
-      return
-    end
-    if isRightButton or (not ancestryIncludes(selfFrame, mouseFocus) and mouseFocus ~= selfFrame) then
-      selfFrame:Hide()
-    end
-  end)
-
-  popup.rows = {}
-  for i = 1, 8 do
-    local row = CreateFrame("Button", nil, popup)
-    row:SetSize(240, 20)
-    row:SetPoint("TOPLEFT", popup, "TOPLEFT", 10, -8 - (i - 1) * 20)
-    row:SetHighlightTexture("auctionhouse-ui-row-highlight")
-    row:GetHighlightTexture():SetBlendMode("ADD")
-    row:GetHighlightTexture():SetAllPoints()
-    row.fs = row:CreateFontString(nil, "OVERLAY", "GameTooltipText")
-    row.fs:SetPoint("LEFT", 2, 0)
-    row.fs:SetJustifyH("LEFT")
-    row.fs:SetTextColor(1, 1, 1)
-    row:SetScript("OnClick", function(button)
-      if button.data then
-        addon:SelectCrafter(button.data)
-        popup:Hide()
-      end
-    end)
-    popup.rows[i] = row
-  end
-
-  self.popup = popup
-  return popup
-end
-
-function addon:UpdatePopupList()
-  if not self.popup or not self.popup:IsShown() then
-    return
-  end
-  local list = self:GetSortedResults()
-  for i = 1, #self.popup.rows do
-    local row = self.popup.rows[i]
-    local data = list[i]
-    if data then
-      row.data = data
-      row.fs:SetText(self.FormatResponse(data))
-      row:Show()
-    else
-      row.data = nil
-      row:Hide()
-    end
-  end
-end
-
-function addon:PopupList(btn)
-  local popup = self:CreatePopup()
-  popup.owner = btn
-  popup:ClearAllPoints()
-  popup:SetPoint("TOPLEFT", btn, "TOPRIGHT", 5, 0)
-  popup:Show()
-  self:UpdatePopupList()
-end
-
 function addon:GetCraftingReagentCountOverride()
   return 9999
 end
@@ -1077,16 +679,6 @@ function addon:UpdateSkillLine(frame)
       break
     end
   end
-end
-
-function addon.FormatResponse(data, hideSender)
-  local sender = data.sender
-  local details = data.details
-  local skill = "|cFF999999???|r"
-  if details then
-    skill = addon.FormatDetails(details)
-  end
-  return sender and not hideSender and format("%s - %s", sender, skill) or skill
 end
 
 function addon.FormatDetails(details)
@@ -1327,11 +919,6 @@ function addon:HandleSlash(input)
     self:Print(L["SLASH_RELOADED"])
     return
   end
-  if cmd == "join" then
-    self:InitChatChannel()
-    self:Print(L["SLASH_CHANNEL_STATE"] .. tostring(self.channelId))
-    return
-  end
   if cmd == "debug" then
     self.db.profile.debug = not self.db.profile.debug
     self:Print(L["SLASH_DEBUG"] .. tostring(self.db.profile.debug))
@@ -1377,16 +964,6 @@ function addon:HandleSlash(input)
   if cmd == "disable" then
     self.db.profile.enabled = false
     self:Print(L["SLASH_DISABLED"])
-    return
-  end
-  if cmd == "delay" then
-    local n = tonumber(arg)
-    if n and n >= 1 and n <= 180 then
-      self.db.profile.delay = n
-      self:Print((L["SLASH_DELAY_SET"]):format(n))
-    else
-      self:Print(L["SLASH_DELAY_USAGE"])
-    end
     return
   end
 

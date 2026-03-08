@@ -1,4 +1,4 @@
-local _, ns = ...
+local AddonName, ns = ...
 local addon = ns.Addon
 local L = ns.L or setmetatable({}, { __index = function(_, k) return k end })
 
@@ -14,6 +14,19 @@ local REMINDER_SOUND_OPTIONS = {
   ["SOUNDKIT:READY_CHECK"] = "SOUND_READY_CHECK",
   ["SOUNDKIT:PVP_THROUGH_QUEUE"] = "SOUND_FLAG_TAKEN"
 }
+
+local function getAddonVersion()
+  local version
+  if AddonName and C_AddOns and C_AddOns.GetAddOnMetadata then
+    version = C_AddOns.GetAddOnMetadata(AddonName, "Version")
+  elseif AddonName and GetAddOnMetadata then
+    version = GetAddOnMetadata(AddonName, "Version")
+  end
+  if not version or version == "" then
+    version = "unknown"
+  end
+  return tostring(version)
+end
 
 local function getValue(key)
   return addon.db.profile[key]
@@ -114,9 +127,6 @@ function addon:SetupOptions()
   local function reminderHidden()
     return not getValue("reminderEnabled")
   end
-  local function channelControlsHidden()
-    return not getValue("autoJoinChannel")
-  end
 
   local options = {
     name = L["ADDON_NAME"],
@@ -126,7 +136,7 @@ function addon:SetupOptions()
         type = "description",
         order = 1,
         width = "full",
-        name = L["OPT_MAIN_DESC"]
+        name = string.format("%s\nVersion: %s", L["OPT_MAIN_DESC"], getAddonVersion())
       },
       enabled = {
         type = "toggle",
@@ -134,39 +144,6 @@ function addon:SetupOptions()
         name = L["OPT_ENABLE_ADDON"],
         get = function() return getValue("enabled") end,
         set = function(_, v) setValue("enabled", v) end
-      },
-      channelHeader = {
-        type = "header",
-        order = 20,
-        name = L["OPT_CHANNEL_HEADER"]
-      },
-      autoJoinChannel = {
-        type = "toggle",
-        order = 21,
-        width = "full",
-        name = L["OPT_AUTO_JOIN"],
-        get = function() return getValue("autoJoinChannel") end,
-        set = function(_, v) setValue("autoJoinChannel", v) end
-      },
-      delay = {
-        type = "range",
-        order = 22,
-        width = "full",
-        name = L["OPT_JOIN_DELAY"],
-        desc = L["OPT_JOIN_DELAY_DESC"],
-        hidden = channelControlsHidden,
-        min = 1,
-        max = 180,
-        step = 1,
-        get = function() return tonumber(getValue("delay")) or 30 end,
-        set = function(_, v) setValue("delay", tonumber(v) or 30) end
-      },
-      joinNow = {
-        type = "execute",
-        order = 23,
-        name = L["OPT_JOIN_NOW"],
-        hidden = channelControlsHidden,
-        func = function() addon:InitChatChannel() end
       },
       reminderHeader = {
         type = "header",
