@@ -52,7 +52,6 @@ L["REMINDER_TEXT_DEFAULT"] = "New Crafting Order"
 L["REMINDER_PATTERN_DEFAULT"] = "new Personal Crafting Order"
 L["BTN_PLACE_ORDER"] = "Place Order"
 L["BTN_FIND"] = "Find"
-L["BTN_JOIN"] = "Join"
 L["LABEL_UNLOCK_ALL"] = "Unlock All"
 L["FORMAT_SKILL"] = "Skill: %d/%d"
 

@@ -1,14 +1,8 @@
-## Interface: 120000, 120001
+﻿## Interface: 120000, 120001
 ## Title: Enhanced Crafting
 ## Notes: Crafting assistant with crafter search and order guidance
 ## Notes-ruRU: Помощник крафта с поиском крафтеров и подсказками по заказам
-
-## Category: Professions
-## Category-enUS: Professions
-## Category-ruRU: Профессии
-
-## X-Category: Professions
-## X-Curse-Project-ID: 1474045
+## Notes-zhCN: 专业制造助手，提供工匠搜索与订单指引
 
 ## SavedVariables: EnhancedCraftingDB
 ## IconTexture: Interface\AddOns\Enhanced Crafting\Media\ecraftIcon
@@ -16,12 +10,13 @@
 ## OptionalDeps: Auctionator
 
 ## Author: kuraeOW (Зангармаш-РевущийФьорд)
-## Version: 1.0.1
+## Version: 1.0.2
 ## eMail: artweb1991@gmail.com
 ## X-License: MIT
 
 Localization\Init.lua
 Localization\enUS.lua
 Localization\ruRU.lua
+Localization\zhCN.lua
 Core.lua
 Config.lua

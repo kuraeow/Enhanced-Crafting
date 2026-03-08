@@ -71,7 +71,7 @@ local function tContainsText(haystack, needle)
   if type(haystack) ~= "string" or type(needle) ~= "string" or needle == "" then
     return false
   end
-  return haystack:find(needle, 1, true) ~= nil
+  return string.find(haystack, needle, 1, true) ~= nil
 end
 
 function addon:Trace(...)
@@ -606,9 +606,6 @@ function addon:PrepareOrdersFrame(frame)
   frame.ignoreFramePositionManager = true
   pcall(frame.SetMovable, frame, true)
   pcall(frame.SetClampedToScreen, frame, true)
-  if frame.SetAttribute then
-    pcall(frame.SetAttribute, frame, "UIPanelLayout-enabled", false)
-  end
   frame:HookScript("OnShow", function()
     if frame.ecuiUseAddonPortrait then
       frame.ecuiUseAddonPortrait = nil
@@ -844,9 +841,13 @@ function addon:QueryRecipe(target)
 end
 
 function addon:FindCrafter_OnClick(btn)
+  addon.channelId = GetChannelName(CHANNEL_NAME)
   if self.channelId == 0 then
     self:InitChatChannel()
-    return
+    self.channelId = GetChannelName(CHANNEL_NAME)
+    if self.channelId == 0 then
+      return
+    end
   end
 
   self:FlushResults()
@@ -880,7 +881,7 @@ function addon:CreateFindButton()
   end)
   btn:SetScript("OnUpdate", function(button)
     addon.channelId = GetChannelName(CHANNEL_NAME)
-    local text = addon.channelId == 0 and L["BTN_JOIN"] or L["BTN_FIND"]
+    local text = L["BTN_FIND"]
     if button.SetTextToFit then
       button:SetTextToFit(text)
     else
