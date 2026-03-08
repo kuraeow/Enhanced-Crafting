@@ -78,7 +78,11 @@ local function tContainsText(haystack, needle)
   if type(haystack) ~= "string" or type(needle) ~= "string" or needle == "" then
     return false
   end
-  return string.find(haystack, needle, 1, true) ~= nil
+  local ok, found = pcall(string.find, haystack, needle, 1, true)
+  if not ok then
+    return false
+  end
+  return found ~= nil
 end
 
 function addon:Trace(...)

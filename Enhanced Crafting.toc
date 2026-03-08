@@ -10,7 +10,7 @@
 ## OptionalDeps: Auctionator
 
 ## Author: kuraeOW (Зангармаш-РевущийФьорд)
-## Version: 1.0.3
+## Version: 1.0.4
 ## eMail: artweb1991@gmail.com
 ## X-License: MIT
 
