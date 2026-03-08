@@ -28,6 +28,7 @@ Standalone adaptation of the popular **“Enhanced Crafting UI”** concept for 
 - **Localization**
   - English (`enUS`)
   - Russian (`ruRU`)
+  - Chinese (`zhCN`)
 
 ## Notes
 
