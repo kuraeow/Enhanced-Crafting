@@ -49,7 +49,7 @@ L["OPT_RELOAD_HOOKS"] = "重新加载钩子"
 
 L["REMINDER_TEXT_DEFAULT"] = "新制作订单"
 L["REMINDER_PATTERN_DEFAULT"] = "新个人制作订单"
-L["BTN_PLACE_ORDER"] = "下订单"
+L["BTN_PLACE_ORDER"] = "制造订单"
 L["LABEL_UNLOCK_ALL"] = "解锁全部"
 
 L["STATUS_NOT_LOADED"] = "|cff999999未加载|r"

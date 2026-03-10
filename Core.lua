@@ -302,6 +302,9 @@ function addon:OnDisable()
     self.allockCheck:Cancel()
     self.allockCheck = nil
   end
+  if ItemUtil and self:IsHooked(ItemUtil, "GetCraftingReagentCount") then
+    self:Unhook(ItemUtil, "GetCraftingReagentCount")
+  end
   if self.reminderFrame then
     self.reminderFrame:Hide()
   end
@@ -530,7 +533,7 @@ function addon:OpenOrdersButton(target)
 
   if not target.ecuiOrdersLayoutHooked then
     target.ecuiOrdersLayoutHooked = true
-    target:HookScript("OnShow", function()
+    self:SecureHookScript(target, "OnShow", function()
       addon:RepositionOrdersButton(target, btn)
       C_Timer.After(0.08, function()
         addon:RepositionOrdersButton(target, btn)
@@ -548,7 +551,7 @@ function addon:PrepareOrdersFrame(frame)
   frame.ignoreFramePositionManager = true
   pcall(frame.SetMovable, frame, true)
   pcall(frame.SetClampedToScreen, frame, true)
-  frame:HookScript("OnShow", function()
+  self:SecureHookScript(frame, "OnShow", function()
     if frame.ecuiUseAddonPortrait then
       frame.ecuiUseAddonPortrait = nil
       addon:ApplyOrdersPortrait(frame)
@@ -654,6 +657,9 @@ function addon:AddCheckBox(target)
     return
   end
 
+  if ItemUtil and self:IsHooked(ItemUtil, "GetCraftingReagentCount") then
+    self:Unhook(ItemUtil, "GetCraftingReagentCount")
+  end
   arb:ClearAllPoints()
   arb:SetChecked(false)
   if target.Label and target.Label:IsVisible() then

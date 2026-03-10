@@ -45,7 +45,7 @@ L["OPT_RELOAD_HOOKS"] = "Reload Hooks"
 
 L["REMINDER_TEXT_DEFAULT"] = "New Crafting Order"
 L["REMINDER_PATTERN_DEFAULT"] = "new Personal Crafting Order"
-L["BTN_PLACE_ORDER"] = "Place Order"
+L["BTN_PLACE_ORDER"] = "Crafting Orders"
 L["LABEL_UNLOCK_ALL"] = "Unlock All"
 
 L["STATUS_NOT_LOADED"] = "|cff999999not loaded|r"
