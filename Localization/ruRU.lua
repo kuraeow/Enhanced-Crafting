@@ -81,7 +81,7 @@ L["SLASH_TRACE"] = "Трассировка: "
 L["SLASH_BLIZZMOVE_NOTE"] = "Примечание: загружен BlizzMove, он может влиять на состояние панелей Professions/CustomerOrders."
 L["SLASH_ENABLED"] = "Включено."
 L["SLASH_DISABLED"] = "Выключено."
-L["SLASH_HELP"] = "�������: /ecraft config | reload | debug | trace [on/off] | dump | probe | state | remind | enable | disable"
+L["SLASH_HELP"] = "�������: /ecraft config | reload | debug | trace [on/off] | dump | probe | state | remind | enable | disable"
 L["MSG_SETTINGS_RESET"] = "Enhanced Crafting: настройки сброшены по умолчанию."
 L["MSG_SOUND_PLAY_FAILED"] = "Не удалось проиграть выбранный звук на текущих каналах."
 

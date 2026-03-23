@@ -1,6 +1,6 @@
 # Enhanced Crafting
 
-Standalone adaptation of the popular **“Enhanced Crafting UI”** concept for **WoW Midnight**.
+Standalone adaptation of the popular WeakAuras **“Enhanced Crafting UI”** for **WoW Midnight**.
 
 `/ecraft` — open addon settings.
 
