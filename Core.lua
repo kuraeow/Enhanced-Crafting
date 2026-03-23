@@ -17,6 +17,15 @@ local REMINDER_ANCHORS = {
   BOTTOM = true,
   BOTTOMRIGHT = true
 }
+local UNLOCK_ALL_HOOK_SPECS = {
+  { objectName = "ItemUtil", method = "GetCraftingReagentCount", handler = "GetCraftingReagentCountOverride" },
+  { objectName = "ProfessionsUtil", method = "GetReagentQuantityInPossession", handler = "GetReagentQuantityInPossessionOverride" },
+  { objectName = "ProfessionsUtil", method = "AccumulateReagentsInPossession", handler = "AccumulateReagentsInPossessionOverride" },
+}
+local BAG_UPDATE_EVENTS = {
+  "BAG_UPDATE",
+  "BAG_UPDATE_DELAYED",
+}
 local addon = LibStub("AceAddon-3.0"):NewAddon(APP_NAME, "AceHook-3.0", "AceEvent-3.0", "AceConsole-3.0")
 ns.Addon = addon
 _G.ECUI = addon
@@ -234,7 +243,7 @@ function addon:OnEnable()
   safeLoadAddOn("Blizzard_Professions")
   safeLoadAddOn("Blizzard_AuctionHouseUI")
   self:EnsureFlyoutButtonOverrides()
-  self:EnsureCraftingPageEventOverride()
+  self:SyncCraftingPageBagUpdates()
 
   self.form = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
   if not self.form then
@@ -305,7 +314,7 @@ function addon:OnDisable()
   end
   self:SetUnlockAllReagentsEnabled(false)
   self:RestoreFlyoutButtonOverrides()
-  self:RestoreCraftingPageEventOverride()
+  self:RestoreCraftingPageBagUpdates()
   if self.reminderFrame then
     self.reminderFrame:Hide()
   end
@@ -432,6 +441,7 @@ function addon:OnCustomerOrdersFrameHide()
 end
 
 function addon:OnProfessionsFrameShow()
+  self:SyncCraftingPageBagUpdates()
   self:CaptureUIState("ProfessionsFrame:OnShow")
   C_Timer.After(0, function()
     addon:RestoreProfessionsTab()
@@ -649,30 +659,8 @@ function addon:CreateCheckBox(target)
   arb:Hide()
 
   function arb:Update()
-    if self:GetChecked() then
-      addon:SetUnlockAllReagentsEnabled(true)
-    else
-      addon:SetUnlockAllReagentsEnabled(false)
-    end
-
-    local sf = self:GetParent()
-    if sf then
-      if ProfessionsFrame and ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView and ProfessionsFrame.OrdersPage.OrderView:IsVisible() then
-        local schematicForm = ProfessionsFrame.OrdersPage.OrderView.OrderDetails and ProfessionsFrame.OrdersPage.OrderView.OrderDetails.SchematicForm
-        if schematicForm then
-          schematicForm:UpdateAllSlots()
-        end
-      elseif ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form and ProfessionsCustomerOrdersFrame.Form:IsVisible() then
-        ProfessionsCustomerOrdersFrame.Form:OnEvent("BAG_UPDATE")
-      elseif ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm then
-        ProfessionsFrame.CraftingPage.SchematicForm:UpdateAllSlots()
-      end
-
-      local qd = sf.QualityDialog
-      if qd and qd.recipeID then
-        qd:Setup()
-      end
-    end
+    addon:SetUnlockAllReagentsEnabled(self:GetChecked() and true or false)
+    addon:RefreshUnlockAllCheckboxParent(self:GetParent())
   end
 
   arb:SetScript("OnClick", function(selfBtn)
@@ -713,6 +701,37 @@ function addon:AddCheckBox(target)
   end
 end
 
+function addon:RefreshUnlockAllCheckboxParent(parent)
+  if not parent then
+    return
+  end
+
+  local qd = parent.QualityDialog
+  if qd and qd.recipeID and qd.Setup then
+    pcall(qd.Setup, qd)
+  end
+
+  local orderView = ProfessionsFrame and ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView
+  if orderView and orderView:IsVisible() then
+    local schematicForm = orderView.OrderDetails and orderView.OrderDetails.SchematicForm
+    if schematicForm and schematicForm.UpdateAllSlots then
+      pcall(schematicForm.UpdateAllSlots, schematicForm)
+    end
+    return
+  end
+
+  local customerForm = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
+  if customerForm and customerForm:IsVisible() and customerForm.OnEvent then
+    pcall(customerForm.OnEvent, customerForm, "BAG_UPDATE")
+    return
+  end
+
+  local craftingForm = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+  if craftingForm and craftingForm.UpdateAllSlots then
+    pcall(craftingForm.UpdateAllSlots, craftingForm)
+  end
+end
+
 function addon:GetCraftingReagentCountOverride()
   return 9999
 end
@@ -725,18 +744,14 @@ function addon:AccumulateReagentsInPossessionOverride()
   return 9999
 end
 
-function addon:SetUnlockAllReagentsEnabled(enabled)
-  local wasEnabled = self.unlockAllReagentsEnabled and true or false
-  self.unlockAllReagentsEnabled = enabled and true or false
-
-  local hookSpecs = {
-    { object = ItemUtil, method = "GetCraftingReagentCount", handler = "GetCraftingReagentCountOverride" },
-    { object = ProfessionsUtil, method = "GetReagentQuantityInPossession", handler = "GetReagentQuantityInPossessionOverride" },
-    { object = ProfessionsUtil, method = "AccumulateReagentsInPossession", handler = "AccumulateReagentsInPossessionOverride" },
+function addon:SetUnlockAllHooksEnabled(enabled)
+  local knownObjects = {
+    ItemUtil = ItemUtil,
+    ProfessionsUtil = ProfessionsUtil,
   }
 
-  for _, hookSpec in ipairs(hookSpecs) do
-    local object = hookSpec.object
+  for _, hookSpec in ipairs(UNLOCK_ALL_HOOK_SPECS) do
+    local object = knownObjects[hookSpec.objectName] or _G[hookSpec.objectName]
     local method = hookSpec.method
     if object and type(object[method]) == "function" then
       if enabled then
@@ -748,9 +763,21 @@ function addon:SetUnlockAllReagentsEnabled(enabled)
       end
     end
   end
+end
+
+function addon:HandleUnlockAllToggleDisabled()
+  self:SanitizeVisibleReagentAllocations()
+end
+
+function addon:SetUnlockAllReagentsEnabled(enabled)
+  local wasEnabled = self.unlockAllReagentsEnabled and true or false
+  self.unlockAllReagentsEnabled = enabled and true or false
+
+  self:SetUnlockAllHooksEnabled(enabled)
+  self:SyncCraftingPageBagUpdates()
 
   if wasEnabled and not enabled then
-    self:SanitizeVisibleReagentAllocations()
+    self:HandleUnlockAllToggleDisabled()
   end
 end
 
@@ -990,33 +1017,36 @@ function addon:RestoreFlyoutButtonOverrides()
   self.flyoutButtonOverridesInstalled = nil
 end
 
-function addon:EnsureCraftingPageEventOverride()
-  if self.craftingPageEventOverrideInstalled then
-    return
-  end
-  if not ProfessionsCraftingPageMixin or type(ProfessionsCraftingPageMixin.OnEvent) ~= "function" then
+function addon:SetCraftingPageBagUpdatesSuspended(page, suspended)
+  if not page or type(page.IsEventRegistered) ~= "function" then
     return
   end
 
-  self.originalCraftingPageOnEvent = ProfessionsCraftingPageMixin.OnEvent
-  ProfessionsCraftingPageMixin.OnEvent = function(page, event, ...)
-    if addon.unlockAllReagentsEnabled and (event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED") then
-      return
+  page.ecuiSuspendedBagEvents = page.ecuiSuspendedBagEvents or {}
+
+  for _, event in ipairs(BAG_UPDATE_EVENTS) do
+    if suspended then
+      if page:IsEventRegistered(event) then
+        page.ecuiSuspendedBagEvents[event] = true
+        pcall(page.UnregisterEvent, page, event)
+      end
+    elseif page.ecuiSuspendedBagEvents[event] then
+      page.ecuiSuspendedBagEvents[event] = nil
+      if type(page.RegisterEvent) == "function" and not page:IsEventRegistered(event) then
+        pcall(page.RegisterEvent, page, event)
+      end
     end
-    return addon.originalCraftingPageOnEvent(page, event, ...)
   end
-  self.craftingPageEventOverrideInstalled = true
 end
 
-function addon:RestoreCraftingPageEventOverride()
-  if not self.craftingPageEventOverrideInstalled then
-    return
-  end
-  if ProfessionsCraftingPageMixin and self.originalCraftingPageOnEvent then
-    ProfessionsCraftingPageMixin.OnEvent = self.originalCraftingPageOnEvent
-  end
-  self.originalCraftingPageOnEvent = nil
-  self.craftingPageEventOverrideInstalled = nil
+function addon:SyncCraftingPageBagUpdates()
+  local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+  self:SetCraftingPageBagUpdatesSuspended(page, self.unlockAllReagentsEnabled and true or false)
+end
+
+function addon:RestoreCraftingPageBagUpdates()
+  local page = ProfessionsFrame and ProfessionsFrame.CraftingPage
+  self:SetCraftingPageBagUpdatesSuspended(page, false)
 end
 
 function addon:UpdateSkillLine(frame)
