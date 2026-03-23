@@ -533,7 +533,7 @@ function addon:OpenOrdersButton(target)
 
   if not target.ecuiOrdersLayoutHooked then
     target.ecuiOrdersLayoutHooked = true
-    self:SecureHookScript(target, "OnShow", function()
+    target:HookScript("OnShow", function()
       addon:RepositionOrdersButton(target, btn)
       C_Timer.After(0.08, function()
         addon:RepositionOrdersButton(target, btn)
@@ -547,6 +547,8 @@ function addon:PrepareOrdersFrame(frame)
     return
   end
 
+  self:EnableOrdersFrameDragging(frame)
+
   frame.ecuiPrepared = true
   frame.ignoreFramePositionManager = true
   pcall(frame.SetMovable, frame, true)
@@ -557,6 +559,47 @@ function addon:PrepareOrdersFrame(frame)
       addon:ApplyOrdersPortrait(frame)
     end
   end)
+end
+
+function addon:EnableOrdersFrameDragging(frame)
+  if not frame or frame.ecuiDragInitialized then
+    return
+  end
+  frame.ecuiDragInitialized = true
+
+  pcall(frame.SetMovable, frame, true)
+  pcall(frame.SetClampedToScreen, frame, true)
+  pcall(frame.EnableMouse, frame, true)
+  pcall(frame.RegisterForDrag, frame, "LeftButton")
+
+  self:SecureHookScript(frame, "OnDragStart", function(dragFrame)
+    if InCombatLockdown and InCombatLockdown() then
+      return
+    end
+    pcall(dragFrame.StartMoving, dragFrame)
+  end)
+  self:SecureHookScript(frame, "OnDragStop", function(dragFrame)
+    pcall(dragFrame.StopMovingOrSizing, dragFrame)
+    pcall(dragFrame.SetUserPlaced, dragFrame, true)
+  end)
+
+  local dragHandle = frame.TitleContainer or frame.TitleBg
+  if dragHandle and dragHandle ~= frame and not dragHandle.ecuiDragInitialized then
+    dragHandle.ecuiDragInitialized = true
+    pcall(dragHandle.EnableMouse, dragHandle, true)
+    pcall(dragHandle.RegisterForDrag, dragHandle, "LeftButton")
+
+    self:SecureHookScript(dragHandle, "OnDragStart", function()
+      if InCombatLockdown and InCombatLockdown() then
+        return
+      end
+      pcall(frame.StartMoving, frame)
+    end)
+    self:SecureHookScript(dragHandle, "OnDragStop", function()
+      pcall(frame.StopMovingOrSizing, frame)
+      pcall(frame.SetUserPlaced, frame, true)
+    end)
+  end
 end
 
 function addon:ApplyOrdersPortrait(frame)
