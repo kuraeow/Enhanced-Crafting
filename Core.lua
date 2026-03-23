@@ -234,6 +234,7 @@ function addon:OnEnable()
   safeLoadAddOn("Blizzard_Professions")
   safeLoadAddOn("Blizzard_AuctionHouseUI")
   self:EnsureFlyoutButtonOverrides()
+  self:EnsureCraftingPageEventOverride()
 
   self.form = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
   if not self.form then
@@ -304,6 +305,7 @@ function addon:OnDisable()
   end
   self:SetUnlockAllReagentsEnabled(false)
   self:RestoreFlyoutButtonOverrides()
+  self:RestoreCraftingPageEventOverride()
   if self.reminderFrame then
     self.reminderFrame:Hide()
   end
@@ -724,6 +726,7 @@ function addon:AccumulateReagentsInPossessionOverride()
 end
 
 function addon:SetUnlockAllReagentsEnabled(enabled)
+  local wasEnabled = self.unlockAllReagentsEnabled and true or false
   self.unlockAllReagentsEnabled = enabled and true or false
 
   local hookSpecs = {
@@ -744,6 +747,10 @@ function addon:SetUnlockAllReagentsEnabled(enabled)
         self:Unhook(object, method)
       end
     end
+  end
+
+  if wasEnabled and not enabled then
+    self:SanitizeVisibleReagentAllocations()
   end
 end
 
@@ -789,6 +796,161 @@ function addon:UpdateFlyoutButtonState(button, count, elementData, behavior)
   end
 end
 
+function addon:SanitizeTransaction(transaction)
+  if not transaction then
+    return false
+  end
+
+  local changed = false
+  local before
+  if transaction.CreateCraftingReagentInfoTbl then
+    local ok, tbl = pcall(transaction.CreateCraftingReagentInfoTbl, transaction)
+    if ok and tbl then
+      before = #tbl
+    end
+  end
+
+  if transaction.SanitizeOptionalAllocations then
+    pcall(transaction.SanitizeOptionalAllocations, transaction)
+  end
+  if transaction.SanitizeAllocations then
+    pcall(transaction.SanitizeAllocations, transaction)
+  end
+  if transaction.SanitizeTargetAllocations then
+    pcall(transaction.SanitizeTargetAllocations, transaction)
+  end
+
+  local recipeSchematic = transaction.GetRecipeSchematic and transaction:GetRecipeSchematic()
+  if recipeSchematic and transaction.HasAnyAllocations and transaction.ClearAllocations and transaction.EnumerateAllocations then
+    local useCharacterInventoryOnly = transaction.ShouldUseCharacterInventoryOnly and transaction:ShouldUseCharacterInventoryOnly() or false
+    for slotIndex, reagentSlotSchematic in ipairs(recipeSchematic.reagentSlotSchematics or {}) do
+      if transaction:HasAnyAllocations(slotIndex) then
+        local requiredQuantity = reagentSlotSchematic.quantityRequired or 0
+        local allocatedOwnedQuantity = 0
+        local invalidSlot = false
+
+        for _, allocation in transaction:EnumerateAllocations(slotIndex) do
+          local reagent = allocation and allocation.reagent
+          if not reagent then
+            invalidSlot = true
+            break
+          end
+
+          local ownedQuantity = ProfessionsUtil.GetReagentQuantityInPossession(reagent, useCharacterInventoryOnly) or 0
+          local reagentRequiredQuantity = reagentSlotSchematic.GetQuantityRequired and reagentSlotSchematic:GetQuantityRequired(reagent) or requiredQuantity
+
+          if ownedQuantity < reagentRequiredQuantity then
+            invalidSlot = true
+            break
+          end
+
+          allocatedOwnedQuantity = allocatedOwnedQuantity + ownedQuantity
+        end
+
+        if not invalidSlot and requiredQuantity > 0 and allocatedOwnedQuantity < requiredQuantity then
+          invalidSlot = true
+        end
+
+        if invalidSlot then
+          pcall(transaction.ClearAllocations, transaction, slotIndex)
+          changed = true
+        end
+      end
+    end
+  end
+
+  if before and transaction.CreateCraftingReagentInfoTbl then
+    local ok, tbl = pcall(transaction.CreateCraftingReagentInfoTbl, transaction)
+    if ok and tbl then
+      changed = changed or before ~= #tbl
+    end
+  end
+
+  return changed
+end
+
+function addon:RefreshSchematicFormAfterSanitize(schematicForm)
+  if not schematicForm then
+    return
+  end
+
+  local transaction = schematicForm.GetTransaction and schematicForm:GetTransaction()
+  self:SanitizeTransaction(transaction)
+
+  if schematicForm.QualityDialog and schematicForm.QualityDialog.IsShown and schematicForm.QualityDialog:IsShown() then
+    local qd = schematicForm.QualityDialog
+    local slotIndex = qd.GetSlotIndex and qd:GetSlotIndex()
+    if slotIndex and transaction and transaction.GetAllocationsCopy and qd.ReinitAllocations then
+      local allocationsCopy = transaction:GetAllocationsCopy(slotIndex)
+      qd:ReinitAllocations(allocationsCopy)
+    end
+  end
+
+  if schematicForm.UpdateAllSlots then
+    pcall(schematicForm.UpdateAllSlots, schematicForm)
+  end
+  if schematicForm.OnAllocationsChanged then
+    pcall(schematicForm.OnAllocationsChanged, schematicForm)
+  elseif schematicForm.UpdateDetailsStats then
+    pcall(schematicForm.UpdateDetailsStats, schematicForm)
+  end
+
+  local craftingPage = ProfessionsFrame and ProfessionsFrame.CraftingPage
+  if craftingPage and craftingPage.SchematicForm == schematicForm and craftingPage.OnEvent then
+    pcall(craftingPage.OnEvent, craftingPage, "BAG_UPDATE")
+    return
+  end
+
+  local orderView = ProfessionsFrame and ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView
+  if orderView and orderView.OrderDetails and orderView.OrderDetails.SchematicForm == schematicForm and orderView.OnEvent then
+    pcall(orderView.OnEvent, orderView, "BAG_UPDATE")
+  end
+end
+
+function addon:RefreshCustomerOrderFormAfterSanitize(form)
+  if not form then
+    return
+  end
+
+  self:SanitizeTransaction(form.transaction)
+
+  if form.QualityDialog and form.QualityDialog.IsShown and form.QualityDialog:IsShown() then
+    local qd = form.QualityDialog
+    local slotIndex = qd.GetSlotIndex and qd:GetSlotIndex()
+    if slotIndex and form.transaction and form.transaction.GetAllocationsCopy and qd.ReinitAllocations then
+      local allocationsCopy = form.transaction:GetAllocationsCopy(slotIndex)
+      qd:ReinitAllocations(allocationsCopy)
+    end
+  end
+
+  if form.UpdateReagentSlots then
+    pcall(form.UpdateReagentSlots, form)
+  end
+  if form.UpdateListOrderButton then
+    pcall(form.UpdateListOrderButton, form)
+  end
+  if form.OnEvent then
+    pcall(form.OnEvent, form, "BAG_UPDATE")
+  end
+end
+
+function addon:SanitizeVisibleReagentAllocations()
+  local craftingForm = ProfessionsFrame and ProfessionsFrame.CraftingPage and ProfessionsFrame.CraftingPage.SchematicForm
+  if craftingForm and craftingForm.IsVisible and craftingForm:IsVisible() then
+    self:RefreshSchematicFormAfterSanitize(craftingForm)
+  end
+
+  local orderDetailsForm = ProfessionsFrame and ProfessionsFrame.OrdersPage and ProfessionsFrame.OrdersPage.OrderView and ProfessionsFrame.OrdersPage.OrderView.OrderDetails and ProfessionsFrame.OrdersPage.OrderView.OrderDetails.SchematicForm
+  if orderDetailsForm and orderDetailsForm.IsVisible and orderDetailsForm:IsVisible() then
+    self:RefreshSchematicFormAfterSanitize(orderDetailsForm)
+  end
+
+  local customerForm = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
+  if customerForm and customerForm.IsVisible and customerForm:IsVisible() then
+    self:RefreshCustomerOrderFormAfterSanitize(customerForm)
+  end
+end
+
 function addon:EnsureFlyoutButtonOverrides()
   if self.flyoutButtonOverridesInstalled then
     return
@@ -826,6 +988,35 @@ function addon:RestoreFlyoutButtonOverrides()
   self.originalFlyoutItemButtonUpdateState = nil
   self.originalFlyoutCurrencyButtonUpdateState = nil
   self.flyoutButtonOverridesInstalled = nil
+end
+
+function addon:EnsureCraftingPageEventOverride()
+  if self.craftingPageEventOverrideInstalled then
+    return
+  end
+  if not ProfessionsCraftingPageMixin or type(ProfessionsCraftingPageMixin.OnEvent) ~= "function" then
+    return
+  end
+
+  self.originalCraftingPageOnEvent = ProfessionsCraftingPageMixin.OnEvent
+  ProfessionsCraftingPageMixin.OnEvent = function(page, event, ...)
+    if addon.unlockAllReagentsEnabled and (event == "BAG_UPDATE" or event == "BAG_UPDATE_DELAYED") then
+      return
+    end
+    return addon.originalCraftingPageOnEvent(page, event, ...)
+  end
+  self.craftingPageEventOverrideInstalled = true
+end
+
+function addon:RestoreCraftingPageEventOverride()
+  if not self.craftingPageEventOverrideInstalled then
+    return
+  end
+  if ProfessionsCraftingPageMixin and self.originalCraftingPageOnEvent then
+    ProfessionsCraftingPageMixin.OnEvent = self.originalCraftingPageOnEvent
+  end
+  self.originalCraftingPageOnEvent = nil
+  self.craftingPageEventOverrideInstalled = nil
 end
 
 function addon:UpdateSkillLine(frame)
