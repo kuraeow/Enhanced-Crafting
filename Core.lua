@@ -17,7 +17,6 @@ local REMINDER_ANCHORS = {
   BOTTOM = true,
   BOTTOMRIGHT = true
 }
-
 local addon = LibStub("AceAddon-3.0"):NewAddon(APP_NAME, "AceHook-3.0", "AceEvent-3.0", "AceConsole-3.0")
 ns.Addon = addon
 _G.ECUI = addon
@@ -234,6 +233,7 @@ function addon:OnEnable()
   safeLoadAddOn("Blizzard_ProfessionsCustomerOrders")
   safeLoadAddOn("Blizzard_Professions")
   safeLoadAddOn("Blizzard_AuctionHouseUI")
+  self:EnsureFlyoutButtonOverrides()
 
   self.form = ProfessionsCustomerOrdersFrame and ProfessionsCustomerOrdersFrame.Form
   if not self.form then
@@ -302,9 +302,8 @@ function addon:OnDisable()
     self.allockCheck:Cancel()
     self.allockCheck = nil
   end
-  if ItemUtil and self:IsHooked(ItemUtil, "GetCraftingReagentCount") then
-    self:Unhook(ItemUtil, "GetCraftingReagentCount")
-  end
+  self:SetUnlockAllReagentsEnabled(false)
+  self:RestoreFlyoutButtonOverrides()
   if self.reminderFrame then
     self.reminderFrame:Hide()
   end
@@ -649,13 +648,9 @@ function addon:CreateCheckBox(target)
 
   function arb:Update()
     if self:GetChecked() then
-      if not addon:IsHooked(ItemUtil, "GetCraftingReagentCount") then
-        addon:RawHook(ItemUtil, "GetCraftingReagentCount", "GetCraftingReagentCountOverride", true)
-      end
+      addon:SetUnlockAllReagentsEnabled(true)
     else
-      if addon:IsHooked(ItemUtil, "GetCraftingReagentCount") then
-        addon:Unhook(ItemUtil, "GetCraftingReagentCount")
-      end
+      addon:SetUnlockAllReagentsEnabled(false)
     end
 
     local sf = self:GetParent()
@@ -682,9 +677,7 @@ function addon:CreateCheckBox(target)
     selfBtn:Update()
   end)
   arb:SetScript("OnHide", function()
-    if addon:IsHooked(ItemUtil, "GetCraftingReagentCount") then
-      addon:Unhook(ItemUtil, "GetCraftingReagentCount")
-    end
+    addon:SetUnlockAllReagentsEnabled(false)
   end)
 
   return arb
@@ -695,14 +688,19 @@ function addon:AddCheckBox(target)
     return
   end
 
+  if (not target.Label or not target.Reagents) and target.GetParent then
+    local parent = target:GetParent()
+    if parent and parent ~= target and parent.Label and parent.Reagents then
+      target = parent
+    end
+  end
+
   local arb = target.UnlockAllReagents or self:CreateCheckBox(target)
   if not arb then
     return
   end
 
-  if ItemUtil and self:IsHooked(ItemUtil, "GetCraftingReagentCount") then
-    self:Unhook(ItemUtil, "GetCraftingReagentCount")
-  end
+  self:SetUnlockAllReagentsEnabled(false)
   arb:ClearAllPoints()
   arb:SetChecked(false)
   if target.Label and target.Label:IsVisible() then
@@ -715,6 +713,119 @@ end
 
 function addon:GetCraftingReagentCountOverride()
   return 9999
+end
+
+function addon:GetReagentQuantityInPossessionOverride()
+  return 9999
+end
+
+function addon:AccumulateReagentsInPossessionOverride()
+  return 9999
+end
+
+function addon:SetUnlockAllReagentsEnabled(enabled)
+  self.unlockAllReagentsEnabled = enabled and true or false
+
+  local hookSpecs = {
+    { object = ItemUtil, method = "GetCraftingReagentCount", handler = "GetCraftingReagentCountOverride" },
+    { object = ProfessionsUtil, method = "GetReagentQuantityInPossession", handler = "GetReagentQuantityInPossessionOverride" },
+    { object = ProfessionsUtil, method = "AccumulateReagentsInPossession", handler = "AccumulateReagentsInPossessionOverride" },
+  }
+
+  for _, hookSpec in ipairs(hookSpecs) do
+    local object = hookSpec.object
+    local method = hookSpec.method
+    if object and type(object[method]) == "function" then
+      if enabled then
+        if not self:IsHooked(object, method) then
+          self:RawHook(object, method, hookSpec.handler, true)
+        end
+      elseif self:IsHooked(object, method) then
+        self:Unhook(object, method)
+      end
+    end
+  end
+end
+
+function addon:IsFlyoutElementUnlocked(elementData, behavior)
+  if not self.unlockAllReagentsEnabled or not elementData or not behavior then
+    return false
+  end
+
+  local reagent = elementData.reagent
+  local transaction = behavior.GetTransaction and behavior:GetTransaction()
+  if not reagent or not transaction then
+    return false
+  end
+  if transaction.HasAllocatedReagent and transaction:HasAllocatedReagent(reagent) then
+    return false
+  end
+  if transaction.AreDependentReagentsAllocated and not transaction:AreDependentReagentsAllocated(reagent) then
+    return false
+  end
+
+  local recraftAllocation = transaction.GetRecraftAllocation and transaction:GetRecraftAllocation()
+  if recraftAllocation and C_TradeSkillUI and C_TradeSkillUI.IsRecraftReagentValid and not C_TradeSkillUI.IsRecraftReagentValid(recraftAllocation, reagent) then
+    return false
+  end
+
+  return true
+end
+
+function addon:UpdateFlyoutButtonState(button, count, elementData, behavior)
+  local valid = behavior and behavior.IsElementValid and behavior:IsElementValid(elementData)
+  if not valid then
+    return
+  end
+  if addon:IsFlyoutElementUnlocked(elementData, behavior) then
+    button.enabled = true
+    if button.DesaturateHierarchy then
+      button:DesaturateHierarchy(0)
+    end
+    if button.GetNormalTexture and button:GetNormalTexture() then
+      SetItemButtonTextureVertexColor(button, 1, 1, 1)
+      SetItemButtonNormalTextureVertexColor(button, 1, 1, 1)
+    end
+  end
+end
+
+function addon:EnsureFlyoutButtonOverrides()
+  if self.flyoutButtonOverridesInstalled then
+    return
+  end
+
+  local function install(mixin, key)
+    if not mixin or type(mixin.UpdateState) ~= "function" then
+      return
+    end
+    local original = mixin.UpdateState
+    self[key] = original
+    mixin.UpdateState = function(button, count, elementData, behavior)
+      original(button, count, elementData, behavior)
+      addon:UpdateFlyoutButtonState(button, count, elementData, behavior)
+    end
+  end
+
+  install(ProfessionsFlyoutItemButtonMixin, "originalFlyoutItemButtonUpdateState")
+  install(ProfessionsFlyoutCurrencyButtonMixin, "originalFlyoutCurrencyButtonUpdateState")
+  self.flyoutButtonOverridesInstalled = true
+end
+
+function addon:RestoreFlyoutButtonOverrides()
+  if not self.flyoutButtonOverridesInstalled then
+    return
+  end
+
+  if ProfessionsFlyoutItemButtonMixin and self.originalFlyoutItemButtonUpdateState then
+    ProfessionsFlyoutItemButtonMixin.UpdateState = self.originalFlyoutItemButtonUpdateState
+  end
+  if ProfessionsFlyoutCurrencyButtonMixin and self.originalFlyoutCurrencyButtonUpdateState then
+    ProfessionsFlyoutCurrencyButtonMixin.UpdateState = self.originalFlyoutCurrencyButtonUpdateState
+  end
+
+  self.originalFlyoutItemButtonUpdateState = nil
+  self.originalFlyoutCurrencyButtonUpdateState = nil
+  self.flyoutButtonOverridesInstalled = nil
 end
 
 function addon:UpdateSkillLine(frame)
