@@ -1,3 +1,5 @@
+<img width="600" height="400" alt="Enhanced Crafting Image" src="https://media.forgecdn.net/attachments/1572/927/logo-jpg.jpg" />
+
 # Enhanced Crafting
 
 Standalone adaptation of the popular WeakAuras **“Enhanced Crafting UI”** for **WoW Midnight**.
